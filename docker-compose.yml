@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LEARNING: Docker Compose lets you run 5 services as if they share one machine.
+# Services talk to each other using their service name as hostname.
+# e.g. 'server' reaches Python at http://ml-service:8000
+#      'ml-service' reaches Redis at redis://redis:6379
+# Key concept: depends_on ensures start order, NOT readiness.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+services:
+  client:
+    build: { context: ./client }
+    ports: ["3000:3000"]
+    environment:
+      - VITE_API_URL=http://localhost:5000
+    depends_on: [server]
+    volumes: ["./client:/app", "/app/node_modules"]
+
+  server:
+    build: { context: ./server }
+    ports: ["5000:5000"]
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongo:27017/sanctiongraph
+      - REDIS_URL=redis://redis:6379
+      - ML_SERVICE_URL=http://ml-service:8000
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+    depends_on: [mongo, redis, ml-service]
+    volumes: ["./server:/app", "/app/node_modules"]
+
+  # LEARNING: Separate Python container — if graph build crashes Python,
+  # Node.js stays alive. Scale independently. Clean separation of concerns.
+  ml-service:
+    build: { context: ./ml-service }
+    ports: ["8000:8000"]
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/sanctiongraph
+      - OPENSANCTIONS_API_KEY=${OPENSANCTIONS_API_KEY}
+      - OPENCORPORATES_API_KEY=${OPENCORPORATES_API_KEY}
+    depends_on: [mongo]
+    volumes: ["./ml-service:/app"]
+
+  # LEARNING: Graph searches take 10-60s (100+ API calls).
+  # Pattern: POST /search → add job to Redis queue → return jobId
+  #          Frontend polls GET /search/:jobId until status='complete'
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redis_data:/data"]
+
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo_data:/data/db"]
+
+volumes:
+  mongo_data:
+  redis_data:

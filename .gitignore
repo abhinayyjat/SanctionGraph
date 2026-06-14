@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables — NEVER commit these
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+ml-service/__pycache__/
+ml-service/sources/__pycache__/
+ml-service/scripts/__pycache__/
+
+# Python virtual env
+venv/
+.venv/
+
+# Build outputs
+client/dist/
+client/build/
+
+# Docker
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
