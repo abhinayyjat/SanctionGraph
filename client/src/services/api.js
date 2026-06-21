@@ -14,10 +14,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('sg_token')
-      window.location.href = '/login'
-    }
+    if (err.response?.status === 401) { localStorage.removeItem('sg_token'); window.location.href = '/login' }
     return Promise.reject(err)
   }
 )
@@ -28,7 +25,6 @@ export const authAPI = {
   me:       ()  => api.get('/auth/me'),
 }
 
-// NEW Week 2
 export const sanctionAPI = {
   check:  (name) => api.post('/sanctions/check', { name }),
   cached: ()     => api.get('/sanctions/cached'),
@@ -43,9 +39,11 @@ export const searchAPI = {
 }
 
 export const reportAPI = {
-  generate: (id)   => api.post(`/reports/${id}`),
-  list:     ()     => api.get('/reports'),
-  addWatch: (name) => api.post('/reports/watchlist', { name }),
+  generate:     (id)   => api.post(`/reports/${id}`),
+  list:         ()     => api.get('/reports'),
+  getWatchlist: ()     => api.get('/reports/watchlist'),
+  addWatch:     (name) => api.post('/reports/watchlist', { name }),
+  removeWatch:  (name) => api.delete(`/reports/watchlist/${encodeURIComponent(name)}`),
 }
 
 export default api
