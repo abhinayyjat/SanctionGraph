@@ -79,19 +79,10 @@ def similarity(name_a: str, name_b: str) -> float:
 
 
 async def resolve_entity(name: str, db, threshold: float = 85.0) -> dict:
-    """
-    Resolve entity name against cache, then API if needed.
-
-    Returns a dict with entity data + match_score + from_cache flag.
-    """
     normalized = normalize_name(name)
-    prefix     = normalized[:4]  # first 4 chars for rough MongoDB pre-filter
+    prefix     = normalized[:4]
 
     # ── Check cache first ─────────────────────────────────────────────────────
-    # MongoDB regex to get a small candidate set (avoids full collection scan)
-    # LEARNING: We don't run fuzzy matching on ALL documents in MongoDB —
-    # that would be O(n) on the full collection. We pre-filter with regex first,
-    # then run fuzzy match on the small candidate set (typically <50 docs).
     candidates = await db.entities.find(
         { "normalizedName": { "$regex": prefix, "$options": "i" } },
         limit=50
@@ -106,7 +97,6 @@ async def resolve_entity(name: str, db, threshold: float = 85.0) -> dict:
             best_entity = c
 
     if best_entity and best_score >= threshold:
-        # Check if cache is fresh (less than 7 days old)
         cached_at = best_entity.get("cachedAt")
         age_days  = (datetime.utcnow() - cached_at).days if cached_at else 999
         if age_days < 7:
@@ -114,20 +104,26 @@ async def resolve_entity(name: str, db, threshold: float = 85.0) -> dict:
                 **best_entity,
                 "match_score": best_score,
                 "from_cache":  True,
-                "id": str(best_entity.get("_id") or best_entity.get("id", name)),
+                # KEY FIX: return the OC id (jurisdiction/number), not Mongo _id
+                "id": best_entity.get("oc_id") or best_entity.get("id", name),
             }
 
     # ── Cache miss → fetch from OpenCorporates ────────────────────────────────
     entity = await fetch_company_by_name(name)
     if entity:
+        # Store the OC id separately before inserting into Mongo
+        oc_id = entity.get("id")  # "gb/12345678" format from fetch_company_by_name
         entity["normalizedName"] = normalize_name(entity.get("name", name))
         entity["cachedAt"]       = datetime.utcnow()
-        result = await db.entities.insert_one(entity)
-        entity["id"] = str(result.inserted_id)
+        entity["oc_id"]          = oc_id  # preserve it explicitly
+
+        await db.entities.insert_one(entity)
+        # Do NOT overwrite entity["id"] with Mongo _id — keep the OC format
 
     return {
         **(entity or { "name": name, "entity_type": "unknown", "jurisdiction": "" }),
         "match_score": 100.0 if entity else 0.0,
         "from_cache":  False,
-        "id": entity.get("id", name) if entity else name,
+        # KEY FIX: use oc_id (jurisdiction/number format) so fetch_related_entities works
+        "id": entity.get("oc_id") or entity.get("id", name) if entity else name,
     }

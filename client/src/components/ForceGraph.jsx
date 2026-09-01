@@ -47,7 +47,9 @@ export default function ForceGraph({ graphData, onNodeClick, selectedNodeId }) {
     if (!graphData || !svgRef.current) return
 
     // ── 1. Clone data (D3 mutates nodes by adding x, y, vx, vy) ─────────────
-    const nodes = graphData.nodes.map(n => ({ id: n.id, ...n.data }))
+    // nx.node_link_data() puts attributes flat on each node (no nested
+    // "data" key) — spread the whole node, don't reach into n.data.
+    const nodes = graphData.nodes.map(n => ({ ...n }))
     const links = graphData.links.map(l => ({
       source: l.source, target: l.target,
       relationship: l.relationship, share_pct: l.share_pct,

@@ -74,8 +74,8 @@ export default function Graph() {
   const filteredGraph = graphData ? {
     ...graphData,
     nodes: graphData.nodes.filter(n => {
-      const score = n.data?.risk_score || 0
-      if (filter === 'sanctioned') return n.data?.sanctioned
+      const score = n.risk_score || 0
+      if (filter === 'sanctioned') return n.sanctioned
       if (filter === 'high')       return score >= 70
       return true
     }),
@@ -83,7 +83,7 @@ export default function Graph() {
       if (filter === 'all') return true
       const nodeIds = new Set(
         graphData.nodes
-          .filter(n => filter === 'sanctioned' ? n.data?.sanctioned : (n.data?.risk_score||0) >= 70)
+          .filter(n => filter === 'sanctioned' ? n.sanctioned : (n.risk_score||0) >= 70)
           .map(n => n.id)
       )
       return nodeIds.has(l.source) || nodeIds.has(l.target)

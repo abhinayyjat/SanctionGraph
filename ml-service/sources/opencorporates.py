@@ -19,20 +19,17 @@ OC_KEY  = os.getenv("OPENCORPORATES_API_KEY", "")
 
 
 async def fetch_company_by_name(name: str) -> dict | None:
-    """Search OpenCorporates by company name. Returns first match as dict."""
     if not OC_KEY:
-        # Return a stub so graph builds without an API key during development
         return _mock_company(name)
 
     async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(f"{OC_BASE}/companies/search", params={
-            "q":       name,
-            "api_token": OC_KEY,
-            "per_page": 1,
-        })
+        resp = await client.get(
+            f"{OC_BASE}/companies/search",
+            params={"q": name, "api_token": OC_KEY, "per_page": 1}
+        )
 
     if resp.status_code != 200:
-        return None
+        return _mock_company(name)  # fallback gracefully
 
     results = resp.json().get("results", {}).get("companies", [])
     if not results:
@@ -40,49 +37,74 @@ async def fetch_company_by_name(name: str) -> dict | None:
 
     c = results[0]["company"]
     return {
-        "opencorporatesId":   c.get("company_number"),
-        "name":               c.get("name"),
-        "entity_type":        "company",
-        "jurisdiction":       c.get("jurisdiction_code", "").upper()[:2],
-        "incorporationDate":  c.get("incorporation_date"),
-        "status":             c.get("current_status", "unknown"),
-        "officer_count":      c.get("officers_count", 0),
-        "filing_count":       c.get("filings_count", 0),
-        "uses_registered_agent": False,
-        "raw_url":            c.get("opencorporates_url"),
-    }
+    "opencorporatesId":  c.get("company_number"),
+    "name":              c.get("name"),
+    "entity_type":       "company",
+    "jurisdiction":      (c.get("jurisdiction_code") or "").upper()[:2],
+    "incorporationDate": c.get("incorporation_date"),
+    "status":            c.get("current_status", "unknown"),
+    "officer_count":     c.get("officers_count", 0),
+    "filing_count":      c.get("filings_count", 0),
+    "uses_registered_agent": False,
+    "jurisdiction_code": c.get("jurisdiction_code"),
+    "company_number":    c.get("company_number"),
+    # This is the critical line — jurisdiction/number format
+    "id": f"{c.get('jurisdiction_code')}/{c.get('company_number')}",
+}
 
 
 async def fetch_related_entities(entity_id: str, entity_name: str, db) -> list:
-    """
-    Fetch officers, shareholders, and subsidiaries for a company.
-    Returns list of { id, name, relationship, share_pct }
-    """
     if not OC_KEY:
         return _mock_related(entity_id, entity_name)
 
-    # In production: parse entity_id to get jurisdiction + company number,
-    # then call /companies/:jurisdiction/:id/officers and /companies/:jurisdiction/:id/network
-    # For now, returns stub data for Week 4 graph testing
-    return _mock_related(entity_id, entity_name)
+    # entity_id format we store: "jurisdiction_code/company_number"
+    # e.g. "gb/12345678"
+    if "/" not in entity_id:
+        return _mock_related(entity_id, entity_name)
 
+    jurisdiction, company_number = entity_id.split("/", 1)
+    related = []
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Fetch officers
+        resp = await client.get(
+            f"{OC_BASE}/companies/{jurisdiction}/{company_number}/officers",
+            params={"api_token": OC_KEY, "per_page": 10}
+        )
+        if resp.status_code == 200:
+            officers = resp.json().get("results", {}).get("officers", [])
+            for o in officers:
+                off = o.get("officer", {})
+                name = off.get("name")
+                if not name:
+                    continue
+                related.append({
+                    "id":           f"officer_{name.lower().replace(' ','_')}",
+                    "name":         name,
+                    "relationship": "officer",
+                    "share_pct":    None,
+                })
+
+    return related if related else _mock_related(entity_id, entity_name)
 
 def _mock_company(name: str) -> dict:
-    """
-    Stub company data for development (no API key needed).
-    Returns plausible-looking company data for the graph builder.
-    """
     import hashlib
     h = int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
-    jurisdictions = ['GB', 'AE', 'CY', 'NL', 'RU', 'US', 'KY', 'VG']
+    jurisdictions = ['gb', 'ae', 'cy', 'nl', 'us', 'ky', 'vg']
+    jur = jurisdictions[h % len(jurisdictions)]
+    fake_number = str(h)[:8]
     return {
         "name":          name,
         "entity_type":   "company",
-        "jurisdiction":  jurisdictions[h % len(jurisdictions)],
+        "jurisdiction":  jur.upper(),
         "status":        "active",
         "officer_count": (h % 5) + 1,
         "filing_count":  (h % 20),
         "uses_registered_agent": bool(h % 3 == 0),
+        "jurisdiction_code": jur,
+        "company_number":    fake_number,
+        "id":  f"{jur}/{fake_number}",  # same format as real API
+        "oc_id": f"{jur}/{fake_number}",
     }
 
 
